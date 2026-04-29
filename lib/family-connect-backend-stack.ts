@@ -4,9 +4,11 @@ import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import { WebSocketLambdaIntegration } from 'aws-cdk-lib/aws-apigatewayv2-integrations';
-import * as iam from 'aws-cdk-lib/aws-iam'; 
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
+import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
+import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
 
 export class FamilyConnectBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -24,7 +26,7 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     const chatHistoryTable = new dynamodb.Table(this, 'ChatHistoryTable', {
       tableName: 'ChatHistory',
       partitionKey: { name: 'roomId', type: dynamodb.AttributeType.STRING },
-      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING }, 
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
       billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
@@ -41,7 +43,7 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     });
 
     connectionsTable.grantReadWriteData(connectLambda);
-    chatHistoryTable.grantReadWriteData(connectLambda); 
+    chatHistoryTable.grantReadWriteData(connectLambda);
 
     // WebSocket API configuration
     const webSocketApi = new apigwv2.WebSocketApi(this, 'FamilyConnectApi', {
@@ -80,23 +82,28 @@ export class FamilyConnectBackendStack extends cdk.Stack {
 
     // Frontend hosting bucket
     const websiteBucket = new s3.Bucket(this, 'FamilyConnectWebsiteBucket', {
-      websiteIndexDocument: 'index.html',
-      publicReadAccess: true,
-      // Explicitly disable BlockPublicAccess to allow website hosting
-      blockPublicAccess: new s3.BlockPublicAccess({
-        blockPublicAcls: false,
-        blockPublicPolicy: false,
-        ignorePublicAcls: false,
-        restrictPublicBuckets: false,
-      }),
+      // websiteIndexDocument: 'index.html',
+      // publicReadAccess: true,
+      // OACを使うので、パブリックアクセスはすべてブロック
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
 
-    // Deploy frontend assets to S3
+    const distribution = new cloudfront.Distribution(this, 'WebsiteDistribution', {
+      defaultRootObject: 'index.html',
+      defaultBehavior: {
+        origin: origins.S3BucketOrigin.withOriginAccessControl(websiteBucket),
+        viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+      }
+    });
+
     new s3deploy.BucketDeployment(this, 'DeployWebsite', {
       sources: [s3deploy.Source.asset('./frontend')],
       destinationBucket: websiteBucket,
+      distribution,
+      distributionPaths: ['/*'],
     });
 
     // CI/CD OIDC Provider for GitHub Actions
@@ -121,17 +128,17 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       ),
       description: 'Role for GitHub Actions to deploy CDK',
     });
-    
+
     // Grant deployment permissions
     deployRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess'));
 
     // Output: Role ARN to be used in GitHub Actions Secrets
     new cdk.CfnOutput(this, 'DeployRoleArn', { value: deployRole.roleArn });
-    
+
     // Output: Frontend website URL
-    new cdk.CfnOutput(this, 'WebsiteURL', {
-      value: websiteBucket.bucketWebsiteUrl,
-      description: 'The URL of the chat application',
+    new cdk.CfnOutput(this, 'CloudFrontURL', {
+      value: `https://${distribution.distributionDomainName}`, 
+      description: 'The URL of the CloudFront distribution',
     });
   }
 }
