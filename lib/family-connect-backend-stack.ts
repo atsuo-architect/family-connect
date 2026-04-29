@@ -60,6 +60,9 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     webSocketApi.addRoute('$default', {
       integration: new WebSocketLambdaIntegration('DefaultIntegration', connectLambda)
     });
+    webSocketApi.addRoute('getHistory', {
+      integration: new WebSocketLambdaIntegration('HistoryIntegration', connectLambda)
+    });
 
     // API Gateway stage setup
     const apiStage = new apigwv2.WebSocketStage(this, 'DevStage', {
