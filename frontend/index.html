@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Family Connect Chat</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; padding: 20px; }
+        #chat-container { width: 100%; max-width: 500px; background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 80vh; }
+        #header { background-color: #0084ff; color: white; padding: 15px; text-align: center; font-weight: bold; }
+        #messages { flex-grow: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message-bubble { padding: 10px 15px; border-radius: 20px; max-width: 80%; background-color: #e4e6eb; color: black; align-self: flex-start; }
+        #input-area { display: flex; padding: 10px; border-top: 1px solid #ccc; background: white; }
+        #message-input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
+        #send-button { background-color: #0084ff; color: white; border: none; padding: 10px 20px; margin-left: 10px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        #send-button:hover { background-color: #006bce; }
+        #status { font-size: 0.8em; text-align: center; color: #666; padding: 5px; background: #f9f9f9; }
+    </style>
+</head>
+<body>
+
+<div id="chat-container">
+    <div id="header">Family Connect 💬</div>
+    <div id="status">🔴 未接続</div>
+    <div id="messages">
+        </div>
+    <div id="input-area">
+        <input type="text" id="message-input" placeholder="メッセージを入力...">
+        <button id="send-button">送信</button>
+    </div>
+</div>
+
+<script>
+    // ==========================================
+    // ⚠️ 以下のURLを、あなたのAPI GatewayのWSS URLに変更してください！
+    // ==========================================
+    const WEBSOCKET_URL = "wss://qo54kf8j45.execute-api.ap-northeast-1.amazonaws.com/dev";
+    
+    let socket;
+    const messagesDiv = document.getElementById('messages');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const statusDiv = document.getElementById('status');
+
+    // 1. WebSocketに接続する関数
+    function connect() {
+        socket = new WebSocket(WEBSOCKET_URL);
+
+        // 接続成功した時の処理
+        socket.onopen = function(e) {
+            statusDiv.textContent = "🟢 接続済み";
+            statusDiv.style.color = "green";
+        };
+
+        // メッセージを受信した時の処理
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if(data.message) {
+                addMessage(data.message);
+            }
+        };
+
+        // 切断された時の処理（自動再接続のロジックなどをここに入れます）
+        socket.onclose = function(event) {
+            statusDiv.textContent = "🔴 切断されました";
+            statusDiv.style.color = "red";
+        };
+        
+        socket.onerror = function(error) {
+            console.error("WebSocket Error: ", error);
+        };
+    }
+
+    // 2. 画面にメッセージの吹き出しを追加する関数
+    function addMessage(text) {
+        const bubble = document.createElement('div');
+        bubble.className = 'message-bubble';
+        bubble.textContent = text;
+        messagesDiv.appendChild(bubble);
+        // 一番下までスクロール
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // 3. メッセージを送信する処理
+    function sendMessage() {
+        const text = messageInput.value.trim();
+        if (text !== "" && socket && socket.readyState === WebSocket.OPEN) {
+            // API Gatewayが指定した {"action": "sendmessage", "msg": "..."} の形で送信
+            const payload = {
+                action: "sendmessage",
+                msg: text
+            };
+            socket.send(JSON.stringify(payload));
+            messageInput.value = ""; // 入力欄を空にする
+        }
+    }
+
+    // 送信ボタンのクリックと、Enterキーの受付
+    sendButton.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') sendMessage();
+    });
+
+    // ページ読み込みと同時に接続開始
+    connect();
+</script>
+
+</body>
+</html>
