@@ -9,6 +9,8 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as cognito from 'aws-cdk-lib/aws-cognito';
+import * as apigwv2_authorizers from 'aws-cdk-lib/aws-apigatewayv2-authorizers';
 
 export class FamilyConnectBackendStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -51,9 +53,9 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     });
 
     // Route integrations
-    webSocketApi.addRoute('$connect', {
-      integration: new WebSocketLambdaIntegration('ConnectIntegration', connectLambda)
-    });
+    // webSocketApi.addRoute('$connect', {
+    //   integration: new WebSocketLambdaIntegration('ConnectIntegration', connectLambda)
+    // });
     webSocketApi.addRoute('$disconnect', {
       integration: new WebSocketLambdaIntegration('DisconnectIntegration', connectLambda)
     });
@@ -131,6 +133,49 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       ),
       description: 'Role for GitHub Actions to deploy CDK',
     });
+
+    // --- 11. Cognito ユーザープールの作成 ---
+    const userPool = new cognito.UserPool(this, 'FamilyConnectUserPool', {
+      userPoolName: 'FamilyConnectUsers',
+      selfSignUpEnabled: false, // 家族以外が勝手に登録できないようにする
+      signInAliases: { username: true, email: true }, // メールアドレスでもログイン可能
+      autoVerify: { email: true },
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // ポートフォリオ用なので削除可能に
+    });
+
+    // アプリケーションクライアント（フロントエンドから接続するための窓口）
+    const userPoolClient = userPool.addClient('FamilyConnectAppClient', {
+      authFlows: {
+        userPassword: true, // ID/PASS でのログインを許可
+      },
+    });
+
+    // --- 12. Lambda オーソライザー（認証用 Lambda） ---
+    const authLambda = new lambda.Function(this, 'WebSocketAuthHandler', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'auth.lambda_handler',
+      code: lambda.Code.fromAsset('lambda'),
+      environment: {
+        USER_POOL_ID: userPool.userPoolId,
+        APP_CLIENT_ID: userPoolClient.userPoolClientId,
+      },
+    });
+
+    // API Gateway に「この Lambda で鍵をチェックしろ」と指示する
+    const authorizer = new apigwv2_authorizers.WebSocketLambdaAuthorizer('ChatAuthorizer', authLambda, {
+      identitySource: ['route.request.querystring.token'], // URLの末尾に ?token=xxx で渡すルール
+    });
+
+    // --- 13. WebSocket API の $connect にオーソライザーを適用 ---
+    // ※既存の webSocketApi.addRoute('$connect', ...) を以下のように書き換えます
+    webSocketApi.addRoute('$connect', {
+      integration: new WebSocketLambdaIntegration('ConnectIntegration', connectLambda),
+      authorizer: authorizer, // 接続時に認証を強制
+    });
+
+    // 出力追加
+    new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
+    new cdk.CfnOutput(this, 'ClientId', { value: userPoolClient.userPoolClientId });
 
     // Grant deployment permissions
     deployRole.addManagedPolicy(iam.ManagedPolicy.fromAwsManagedPolicyName('AdministratorAccess'));
