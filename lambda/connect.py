@@ -69,10 +69,12 @@ def lambda_handler(event, context):
             
             print(f"Receive message [{connection_id}]:{event.get('body')}")
 
-# --- connect.py の route_key 分岐の中に追加 ---
-
         elif route_key == 'getHistory':
             # ページネーションのための「どこまで読み込んだか」のキーを取得
+            domain = event['requestContext']['domainName']
+            stage = event['requestContext']['stage']
+            apigw_client = boto3.client('apigatewaymanagementapi', endpoint_url=f'https://{domain}/{stage}')
+
             raw_body = event.get('body', '{}')
             body = json.loads(raw_body)
             last_key = body.get('lastEvaluatedKey') # 次の10件を取得する際に使用

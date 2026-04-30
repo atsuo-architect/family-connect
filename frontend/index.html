@@ -5,103 +5,153 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Family Connect Chat</title>
     <style>
-        body { font-family: sans-serif; background-color: #f0f2f5; display: flex; justify-content: center; padding: 20px; }
-        #chat-container { width: 100%; max-width: 500px; background: white; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 80vh; }
-        #header { background-color: #0084ff; color: white; padding: 15px; text-align: center; font-weight: bold; }
-        #messages { flex-grow: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-        .message-bubble { padding: 10px 15px; border-radius: 20px; max-width: 80%; background-color: #e4e6eb; color: black; align-self: flex-start; }
-        #input-area { display: flex; padding: 10px; border-top: 1px solid #ccc; background: white; }
+        body { font-family: sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        #chat-container { width: 100%; max-width: 500px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; display: flex; flex-direction: column; height: 80vh; }
+        #messages { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
+        .message { padding: 10px 15px; border-radius: 20px; background-color: #e4e6eb; width: fit-content; max-width: 80%; word-break: break-all; }
+        .system-msg { text-align: center; color: #888; font-size: 0.8em; align-self: center; background: none; }
+        #input-area { display: flex; padding: 15px; border-top: 1px solid #ddd; background: white; }
         #message-input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; }
-        #send-button { background-color: #0084ff; color: white; border: none; padding: 10px 20px; margin-left: 10px; border-radius: 20px; cursor: pointer; font-weight: bold; }
-        #send-button:hover { background-color: #006bce; }
-        #status { font-size: 0.8em; text-align: center; color: #666; padding: 5px; background: #f9f9f9; }
+        #send-btn { background-color: #0084ff; color: white; border: none; padding: 10px 20px; margin-left: 10px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+        #send-btn:hover { background-color: #0073e6; }
+        #loading { text-align: center; font-size: 0.8em; color: #0084ff; display: none; padding: 10px; }
     </style>
 </head>
 <body>
 
 <div id="chat-container">
-    <div id="header">Family Connect 💬</div>
-    <div id="status">🔴 未接続</div>
-    <div id="messages">
-        </div>
+    <div id="loading">過去のメッセージを読み込み中...</div>
+    <div id="messages"></div>
     <div id="input-area">
-        <input type="text" id="message-input" placeholder="メッセージを入力...">
-        <button id="send-button">送信</button>
+        <input type="text" id="message-input" placeholder="メッセージを入力..." autocomplete="off">
+        <button id="send-btn">送信</button>
     </div>
 </div>
 
 <script>
     // ==========================================
-    // ⚠️ 以下のURLを、あなたのAPI GatewayのWSS URLに変更してください！
+    // ⚠️ ここに CDK で出力された WebSocketURL を貼り付けます！
+    // 例: wss://xxxxxx.execute-api.ap-northeast-1.amazonaws.com/dev
     // ==========================================
-    const WEBSOCKET_URL = "wss://qo54kf8j45.execute-api.ap-northeast-1.amazonaws.com/dev";
-    
-    let socket;
+    const WS_URL = "wss://qo54kf8j45.execute-api.ap-northeast-1.amazonaws.com/dev";
+
     const messagesDiv = document.getElementById('messages');
     const messageInput = document.getElementById('message-input');
-    const sendButton = document.getElementById('send-button');
-    const statusDiv = document.getElementById('status');
+    const sendBtn = document.getElementById('send-btn');
+    const loadingDiv = document.getElementById('loading');
 
-    // 1. WebSocketに接続する関数
+    let ws;
+    let lastEvaluatedKey = null;
+    let isFetching = false;
+    let hasMoreHistory = true;
+
+    // WebSocketの接続開始
     function connect() {
-        socket = new WebSocket(WEBSOCKET_URL);
+        ws = new WebSocket(WS_URL);
 
-        // 接続成功した時の処理
-        socket.onopen = function(e) {
-            statusDiv.textContent = "🟢 接続済み";
-            statusDiv.style.color = "green";
+        ws.onopen = () => {
+            appendMessage('システム', '接続されました', 'system-msg');
+            fetchHistory(); // 接続直後に最新10件を取得
         };
 
-        // メッセージを受信した時の処理
-        socket.onmessage = function(event) {
+        ws.onmessage = (event) => {
             const data = JSON.parse(event.data);
-            if(data.message) {
-                addMessage(data.message);
+
+            if (data.type === 'history') {
+                // 過去履歴の受信時
+                renderHistory(data.messages);
+                lastEvaluatedKey = data.lastEvaluatedKey;
+                
+                if (!lastEvaluatedKey) {
+                    hasMoreHistory = false; // もう過去の履歴がない場合
+                }
+                isFetching = false;
+                loadingDiv.style.display = 'none';
+
+            } else if (data.message) {
+                // リアルタイムの新規メッセージ受信時
+                appendMessage('', data.message, 'message');
+                scrollToBottom();
             }
         };
 
-        // 切断された時の処理（自動再接続のロジックなどをここに入れます）
-        socket.onclose = function(event) {
-            statusDiv.textContent = "🔴 切断されました";
-            statusDiv.style.color = "red";
-        };
-        
-        socket.onerror = function(error) {
-            console.error("WebSocket Error: ", error);
+        ws.onclose = () => {
+            appendMessage('システム', '切断されました。再接続してください。', 'system-msg');
         };
     }
 
-    // 2. 画面にメッセージの吹き出しを追加する関数
-    function addMessage(text) {
-        const bubble = document.createElement('div');
-        bubble.className = 'message-bubble';
-        bubble.textContent = text;
-        messagesDiv.appendChild(bubble);
-        // 一番下までスクロール
+    // 履歴を要求する
+    function fetchHistory() {
+        if (isFetching || !hasMoreHistory || ws.readyState !== WebSocket.OPEN) return;
+        
+        isFetching = true;
+        loadingDiv.style.display = 'block';
+
+        ws.send(JSON.stringify({
+            action: 'getHistory', // Lambdaの route_key と一致させる
+            lastEvaluatedKey: lastEvaluatedKey
+        }));
+    }
+
+    // 履歴を画面の「上（過去）」に継ぎ足す処理
+    function renderHistory(messages) {
+        // スクロール位置を維持するための工夫（現在の高さを記憶）
+        const oldScrollHeight = messagesDiv.scrollHeight;
+
+        messages.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = 'message';
+            // 送信者IDの先頭5文字を名前にする（簡易的）
+            const senderName = msg.senderId ? msg.senderId.substring(0, 5) : '不明';
+            div.textContent = `[${senderName}...] ${msg.message}`;
+            // 過去のメッセージなので prepend (一番上に追加)
+            messagesDiv.prepend(div);
+        });
+
+        // DOM追加後の高さから古い高さを引き、スクロール位置を調整する
+        const newScrollHeight = messagesDiv.scrollHeight;
+        messagesDiv.scrollTop = newScrollHeight - oldScrollHeight;
+    }
+
+    // 新規メッセージを画面の「下（最新）」に追加する処理
+    function appendMessage(sender, text, className) {
+        const div = document.createElement('div');
+        div.className = className;
+        div.textContent = sender ? `${sender}: ${text}` : text;
+        messagesDiv.appendChild(div);
+    }
+
+    function scrollToBottom() {
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
-    // 3. メッセージを送信する処理
+    // メッセージ送信処理
     function sendMessage() {
         const text = messageInput.value.trim();
-        if (text !== "" && socket && socket.readyState === WebSocket.OPEN) {
-            // API Gatewayが指定した {"action": "sendmessage", "msg": "..."} の形で送信
-            const payload = {
-                action: "sendmessage",
+        if (text !== '' && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'sendmessage', // $defaultルートに流れる
                 msg: text
-            };
-            socket.send(JSON.stringify(payload));
-            messageInput.value = ""; // 入力欄を空にする
+            }));
+            messageInput.value = '';
         }
     }
 
-    // 送信ボタンのクリックと、Enterキーの受付
-    sendButton.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', function (e) {
+    // --- イベントリスナー ---
+
+    // 一番上までスクロールした時の検知（追加読み込み）
+    messagesDiv.addEventListener('scroll', () => {
+        if (messagesDiv.scrollTop === 0) {
+            fetchHistory();
+        }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') sendMessage();
     });
 
-    // ページ読み込みと同時に接続開始
+    // 起動
     connect();
 </script>
 
