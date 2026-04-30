@@ -135,7 +135,8 @@
                 isFetching = false;
                 loadingDiv.style.display = 'none';
             } else if (data.message) {
-                appendMessage('', data.message, 'message');
+                const senderName = data.senderId ? data.senderId : '不明';
+                appendMessage(`[${senderName}]`, data.message, 'message');
                 scrollToBottom();
             }
         };

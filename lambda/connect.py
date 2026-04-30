@@ -40,6 +40,7 @@ def lambda_handler(event, context):
 
             msg = body.get('msg', '空のメッセージ')
             sender_msg = f"[{connection_id[:5]}...] {msg}" 
+            sender_name = body.get('sender', '不明')
             
             # Persist message to DynamoDB for historical retrieval
             timestamp = datetime.utcnow().isoformat()
@@ -47,7 +48,8 @@ def lambda_handler(event, context):
                 'roomId': 'general',            # Partition key
                 'timestamp': timestamp,         # Sort key for chronological ordering
                 'senderId': connection_id,      
-                'message': msg                  
+                'message': msg,
+                'senderId': sender_name
             })
             
             # 3. Retrieve all active connection IDs
@@ -99,7 +101,8 @@ def lambda_handler(event, context):
                 Data=json.dumps({
                     'type': 'history',
                     'messages': items,
-                    'lastEvaluatedKey': new_last_key
+                    'lastEvaluatedKey': new_last_key,
+                    'senderId': sender_name
                 }, ensure_ascii=False).encode('utf-8')
             )
 
