@@ -122,8 +122,17 @@
         ws = new WebSocket(wsUrlWithToken);
 
         ws.onopen = () => {
-            appendMessage('システム', `${currentUsername}として接続しました`, 'system-msg');
-            fetchHistory();
+            if (messagesDiv.innerHTML === '') {
+                appendMessage('システム', `${currentUsername}として接続しました`, 'system-msg');
+                fetchHistory();
+            }
+
+            pingInterval = setInterval(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ action: 'ping' }));
+                }
+            }, 25000);
+
         };
 
         ws.onmessage = (event) => {
@@ -134,15 +143,26 @@
                 if (!lastEvaluatedKey) hasMoreHistory = false;
                 isFetching = false;
                 loadingDiv.style.display = 'none';
-            } else if (data.message) {
+            } else if (data.message) {                
                 const senderName = data.senderId ? data.senderId : '不明';
-                appendMessage(`[${senderName}]`, data.message, 'message');
+                const div = document.createElement('div');
+                div.className = 'message';
+                div.textContent = `[${senderName}] ${data.message}`; // コロンなし！
+                messagesDiv.appendChild(div);
                 scrollToBottom();
             }
         };
 
         ws.onclose = () => {
-            appendMessage('システム', '切断されました。画面を更新して再ログインしてください。', 'system-msg');
+            console.log("通信が切断されました。3秒後に自動再接続します...");
+            setTimeout(() => {
+                connect(token); // 同じトークンを使って再接続！
+            }, 3000);
+        };
+        
+        ws.onerror = (error) => {
+            console.error("WebSocketエラー:", error);
+            ws.close(); // エラーが起きたら強制的に閉じて、oncloseの自動再接続に任せる
         };
     }
 
