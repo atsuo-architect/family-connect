@@ -53,9 +53,6 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     });
 
     // Route integrations
-    // webSocketApi.addRoute('$connect', {
-    //   integration: new WebSocketLambdaIntegration('ConnectIntegration', connectLambda)
-    // });
     webSocketApi.addRoute('$disconnect', {
       integration: new WebSocketLambdaIntegration('DisconnectIntegration', connectLambda)
     });
@@ -79,17 +76,8 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       resources: ['arn:aws:execute-api:*:*:*/*'],
     }));
 
-    // Output: WebSocket endpoint URL
-    new cdk.CfnOutput(this, 'WebSocketURL', {
-      value: apiStage.url,
-      description: 'The WSS URL to connect to the API Gateway',
-    });
-
     // Frontend hosting bucket
     const websiteBucket = new s3.Bucket(this, 'FamilyConnectWebsiteBucket', {
-      // websiteIndexDocument: 'index.html',
-      // publicReadAccess: true,
-      // OACを使うので、パブリックアクセスはすべてブロック
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
@@ -137,16 +125,15 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     // --- 11. Cognito ユーザープールの作成 ---
     const userPool = new cognito.UserPool(this, 'FamilyConnectUserPool', {
       userPoolName: 'FamilyConnectUsers',
-      selfSignUpEnabled: false, // 家族以外が勝手に登録できないようにする
-      signInAliases: { username: true, email: true }, // メールアドレスでもログイン可能
+      selfSignUpEnabled: false, 
+      signInAliases: { username: true, email: true }, 
       autoVerify: { email: true },
-      removalPolicy: cdk.RemovalPolicy.DESTROY, // ポートフォリオ用なので削除可能に
+      removalPolicy: cdk.RemovalPolicy.DESTROY, 
     });
 
-    // アプリケーションクライアント（フロントエンドから接続するための窓口）
     const userPoolClient = userPool.addClient('FamilyConnectAppClient', {
       authFlows: {
-        userPassword: true, // ID/PASS でのログインを許可
+        userPassword: true, 
       },
     });
 
@@ -161,17 +148,50 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       },
     });
 
-    // API Gateway に「この Lambda で鍵をチェックしろ」と指示する
     const authorizer = new apigwv2_authorizers.WebSocketLambdaAuthorizer('ChatAuthorizer', authLambda, {
-      identitySource: ['route.request.querystring.token'], // URLの末尾に ?token=xxx で渡すルール
+      identitySource: ['route.request.querystring.token'], 
     });
 
     // --- 13. WebSocket API の $connect にオーソライザーを適用 ---
-    // ※既存の webSocketApi.addRoute('$connect', ...) を以下のように書き換えます
     webSocketApi.addRoute('$connect', {
       integration: new WebSocketLambdaIntegration('ConnectIntegration', connectLambda),
-      authorizer: authorizer, // 接続時に認証を強制
+      authorizer: authorizer, 
     });
+
+
+    // ==============================================================================
+    // ★追加: AI アシスタント用の非同期 Lambda と権限設定
+    // ==============================================================================
+    const aiHandlerLambda = new lambda.Function(this, 'AiHandlerLambda', {
+      runtime: lambda.Runtime.PYTHON_3_12,
+      handler: 'ai_handler.lambda_handler',
+      code: lambda.Code.fromAsset('lambda'),
+      timeout: cdk.Duration.seconds(60), // AI思考用に長めのタイムアウトを設定
+      environment: {
+        HISTORY_TABLE_NAME: chatHistoryTable.tableName, 
+      }
+    });
+
+    // ① Amazon Bedrock（AIモデル）の呼び出し権限
+    aiHandlerLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['*'], 
+    }));
+
+    // ② DynamoDBへの履歴保存権限
+    chatHistoryTable.grantWriteData(aiHandlerLambda);
+
+    // ③ API Gateway経由で全員のWebSocketに返信をブロードキャストする権限
+    aiHandlerLambda.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['execute-api:ManageConnections'],
+      resources: [`arn:aws:execute-api:${this.region}:${this.account}:${webSocketApi.apiId}/*`],
+    }));
+
+    // ④ Connect Lambda から AI Lambda を非同期で呼び出す権限
+    aiHandlerLambda.grantInvoke(connectLambda);
+    connectLambda.addEnvironment('AI_LAMBDA_ARN', aiHandlerLambda.functionArn);
+    // ==============================================================================
+
 
     // 出力追加
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
@@ -187,6 +207,12 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'CloudFrontURL', {
       value: `https://${distribution.distributionDomainName}`, 
       description: 'The URL of the CloudFront distribution',
+    });
+    
+    // Output: WebSocket endpoint URL
+    new cdk.CfnOutput(this, 'WebSocketURL', {
+      value: apiStage.url,
+      description: 'The WSS URL to connect to the API Gateway',
     });
   }
 }
