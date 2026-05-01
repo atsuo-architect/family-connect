@@ -122,7 +122,11 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       description: 'Role for GitHub Actions to deploy CDK',
     });
 
-    // --- 11. Cognito ユーザープールの作成 ---
+    // ------------------------------------------------------------------
+    // Cognito User Pool configuration
+    // Rationale: Centralizes identity management and restricts chat access 
+    // strictly to verified family members.
+    // ------------------------------------------------------------------
     const userPool = new cognito.UserPool(this, 'FamilyConnectUserPool', {
       userPoolName: 'FamilyConnectUsers',
       selfSignUpEnabled: false, 
@@ -137,7 +141,11 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       },
     });
 
-    // --- 12. Lambda オーソライザー（認証用 Lambda） ---
+    // ------------------------------------------------------------------
+    // Lambda Authorizer for WebSocket connection security
+    // Rationale: Intercepts connection requests to validate Cognito tokens 
+    // before allowing the WebSocket connection to be established.
+    // ------------------------------------------------------------------
     const authLambda = new lambda.Function(this, 'WebSocketAuthHandler', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'auth.lambda_handler',
@@ -152,7 +160,10 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       identitySource: ['route.request.querystring.token'], 
     });
 
-    // --- 13. WebSocket API の $connect にオーソライザーを適用 ---
+    // ------------------------------------------------------------------
+    // Apply Authorizer to the $connect route
+    // Rationale: Secures the API endpoint at the infrastructure level.
+    // ------------------------------------------------------------------
     webSocketApi.addRoute('$connect', {
       integration: new WebSocketLambdaIntegration('ConnectIntegration', connectLambda),
       authorizer: authorizer, 
@@ -160,40 +171,43 @@ export class FamilyConnectBackendStack extends cdk.Stack {
 
 
     // ==============================================================================
-    // ★追加: AI アシスタント用の非同期 Lambda と権限設定
+    // Asynchronous AI Handler Configuration & IAM Permissions
+    // Rationale: Decouples AI inference from standard chat logic to maintain 
+    // high performance and prevent connection timeouts during processing.
     // ==============================================================================
     const aiHandlerLambda = new lambda.Function(this, 'AiHandlerLambda', {
       runtime: lambda.Runtime.PYTHON_3_12,
       handler: 'ai_handler.lambda_handler',
       code: lambda.Code.fromAsset('lambda'),
-      timeout: cdk.Duration.seconds(60), // AI思考用に長めのタイムアウトを設定
+      timeout: cdk.Duration.seconds(60), // Extended timeout allocated for Bedrock API inference
       environment: {
         HISTORY_TABLE_NAME: chatHistoryTable.tableName, 
       }
     });
 
-    // ① Amazon Bedrock（AIモデル）の呼び出し権限
+    // 1. Grant permission to invoke Amazon Bedrock foundational models
     aiHandlerLambda.addToRolePolicy(new iam.PolicyStatement({
       actions: ['bedrock:InvokeModel'],
       resources: ['*'], 
     }));
 
-    // ② DynamoDBへの履歴保存権限
+    // 2. Grant write access to persist AI responses directly into the chat history
     chatHistoryTable.grantWriteData(aiHandlerLambda);
 
-    // ③ API Gateway経由で全員のWebSocketに返信をブロードキャストする権限
+    // 3. Grant permission to broadcast the AI's response asynchronously via API Gateway
     aiHandlerLambda.addToRolePolicy(new iam.PolicyStatement({
       actions: ['execute-api:ManageConnections'],
       resources: [`arn:aws:execute-api:${this.region}:${this.account}:${webSocketApi.apiId}/*`],
     }));
 
-    // ④ Connect Lambda から AI Lambda を非同期で呼び出す権限
+    // 4. Grant the primary Connect Lambda permission to trigger the AI Handler asynchronously
+    // Rationale: Enables event-driven delegation via environment variables, avoiding tight coupling.
     aiHandlerLambda.grantInvoke(connectLambda);
     connectLambda.addEnvironment('AI_LAMBDA_ARN', aiHandlerLambda.functionArn);
     // ==============================================================================
 
 
-    // 出力追加
+    // Outputs for Cognito configurations
     new cdk.CfnOutput(this, 'UserPoolId', { value: userPool.userPoolId });
     new cdk.CfnOutput(this, 'ClientId', { value: userPoolClient.userPoolClientId });
 
