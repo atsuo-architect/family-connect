@@ -6,7 +6,7 @@ from botocore.exceptions import ClientError
 
 # Initialize AWS clients outside the handler for execution environment reuse (Performance optimization)
 dynamodb = boto3.resource('dynamodb')
-# NEW: Initialize Lambda client for asynchronous AI invocation
+# Initialize Lambda client for asynchronous AI invocation
 lambda_client = boto3.client('lambda')
 
 # Load table references from environment variables injected by AWS CDK
@@ -63,6 +63,9 @@ def lambda_handler(event, context):
             
             msg = body.get('msg', 'Empty message')
             sender_name = body.get('sender', 'Unknown User')
+            # NEW: Extract dynamically selected Bedrock model ID from the client payload 
+            # (fallback to Nova Lite to maintain backward compatibility)
+            selected_model = body.get('modelId', 'amazon.nova-lite-v1:0')
             
             timestamp = datetime.utcnow().isoformat()
             history_table.put_item(Item={
@@ -91,7 +94,7 @@ def lambda_handler(event, context):
                     print(f"Failed to deliver message to {conn_id}: {e}")
 
             # ------------------------------------------------------------------
-            # NEW: Asynchronous AI Triggering Logic
+            # Asynchronous AI Triggering Logic
             # Rationale: Decouples heavy AI inference from the primary WebSocket loop.
             # ------------------------------------------------------------------
             if "@AI" in msg or "＠AI" in msg:
@@ -103,7 +106,8 @@ def lambda_handler(event, context):
                     # Prepare payload for ai_handler.py
                     ai_payload = {
                         "prompt": clean_msg,
-                        "senderId": sender_name, # ★NEW: Pass sender context to AI handler
+                        "senderId": sender_name, 
+                        "modelId": selected_model, # NEW: Forward the selected model ID to the AI handler
                         "domain": domain,
                         "stage": stage,
                         "connections": connections
@@ -116,7 +120,7 @@ def lambda_handler(event, context):
                             InvocationType='Event',
                             Payload=json.dumps(ai_payload)
                         )
-                        print(f"AI Handler triggered asynchronously for message: {clean_msg}")
+                        print(f"AI Handler triggered asynchronously for message: {clean_msg} via model: {selected_model}")
                     except Exception as ai_err:
                         print(f"Error triggering AI Lambda: {ai_err}")
 

@@ -16,8 +16,10 @@ def lambda_handler(event, context):
     # Extract payload passed asynchronously from the WebSocket connect handler.
     # Rationale: Receiving active connections directly in the payload avoids an extra DynamoDB scan.
     user_msg = event.get('prompt', '')
-    # NEW: Extract sender identity to support dynamic persona switching
+    # Extract sender identity to support dynamic persona switching
     sender_id = event.get('senderId', '') 
+    # NEW: Extract dynamically selected model ID from the event payload
+    target_model = event.get('modelId', 'amazon.nova-lite-v1:0')
     domain = event.get('domain')
     stage = event.get('stage')
     connections = event.get('connections', [])
@@ -26,7 +28,7 @@ def lambda_handler(event, context):
     system_prompt = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。"
 
     # ------------------------------------------------------------------
-    # NEW: Dynamic System Prompt Selection
+    # Dynamic System Prompt Selection
     # Rationale: Customizes the AI's persona based on the user's profile
     # (e.g., simplified Japanese for children). The children's list is 
     # kept in an untracked JSON file for privacy.
@@ -54,8 +56,8 @@ def lambda_handler(event, context):
     # ------------------------------------------------------------------
     try:
         response = bedrock.converse(
-            # Target model ID (Amazon Nova Lite for low-latency and cost-efficiency)
-            modelId='amazon.nova-lite-v1:0', 
+            # CHANGED: Use dynamic target model ID instead of hardcoded string
+            modelId=target_model, 
             messages=[{
                 "role": "user",
                 "content": [{"text": user_msg}]

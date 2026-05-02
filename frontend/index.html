@@ -25,7 +25,7 @@
         .login-input { padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; outline: none; }
         #login-btn { background-color: #0084ff; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; }
 
-        /* --- NEW: AI Typing Indicator Styles --- */
+        /* --- AI Typing Indicator Styles --- */
         #ai-typing-indicator { padding: 5px 20px 10px 20px; color: #888; font-size: 0.85em; display: none; align-self: flex-start; }
         .typing-indicator .dot { animation: blink 1.4s infinite both; }
         .typing-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
@@ -33,11 +33,16 @@
         .typing-indicator .dot:nth-child(4) { animation-delay: 0.6s; }
         @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
 
+        /* --- NEW: AI Model Selector Styles --- */
+        #model-selector { padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; margin-right: 10px; font-size: 14px; background-color: #f9f9f9; }
+
         @media screen and (max-width: 600px) {
             body { padding: 0; height: 100dvh; background-color: white; }
             #chat-container { max-width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
             #messages { padding: 10px; }
             #login-container { box-shadow: none; width: 80%; }
+            #model-selector { margin-bottom: 10px; margin-right: 0; width: 100%; } /* スマホ向けレイアウト調整 */
+            #input-area { flex-wrap: wrap; }
         }
     </style>
 </head>
@@ -54,13 +59,19 @@
     <div id="loading">過去のメッセージを読み込み中...</div>
     <div id="messages"></div>
     
-    <!-- NEW: AI Typing Indicator DOM Element -->
+    <!-- AI Typing Indicator DOM Element -->
     <div id="ai-typing-indicator" class="typing-indicator">
         <span>🤖 AIが考え中</span>
         <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
     </div>
 
     <div id="input-area">
+        <!-- NEW: AI Model Selector -->
+        <select id="model-selector">
+            <option value="amazon.nova-lite-v1:0">Nova Lite (速い)</option>
+            <option value="anthropic.claude-opus-4-5-20251101-v1:0">Claude 4.5 Haiku (賢い)</option>
+            <option value="anthropic.claude-sonnet-4-6">Claude 4.6 Sonnet (超賢い)</option>
+        </select>
         <input type="text" id="message-input" placeholder="メッセージを入力..." autocomplete="off">
         <button id="send-btn">送信</button>
     </div>
@@ -190,7 +201,7 @@
                 isFetching = false;
                 loadingDiv.style.display = 'none';
             } else if (data.message) {
-                // NEW: Hide the AI typing indicator once the AI responds
+                // Hide the AI typing indicator once the AI responds
                 if (data.senderId === 'AIアシスタント') {
                     document.getElementById('ai-typing-indicator').style.display = 'none';
                 }
@@ -277,7 +288,10 @@
         const text = messageInput.value.trim();
         if (text !== '' && ws.readyState === WebSocket.OPEN) {
             
-            // NEW: Display the AI typing indicator if the user mentions the AI
+            // NEW: Retrieve selected AI model ID
+            const selectedModel = document.getElementById('model-selector').value;
+
+            // Display the AI typing indicator if the user mentions the AI
             // Also sets a 15-second safety timeout to hide it if the backend fails
             if (text.includes('@AI') || text.includes('＠AI')) {
                 const indicator = document.getElementById('ai-typing-indicator');
@@ -294,7 +308,8 @@
             ws.send(JSON.stringify({
                 action: 'sendmessage',
                 msg: text,
-                sender: currentUsername 
+                sender: currentUsername,
+                modelId: selectedModel // NEW: Include selected model in WebSocket payload
             }));
             messageInput.value = '';
         }
