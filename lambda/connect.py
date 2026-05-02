@@ -103,6 +103,7 @@ def lambda_handler(event, context):
                     # Prepare payload for ai_handler.py
                     ai_payload = {
                         "prompt": clean_msg,
+                        "senderId": sender_name, # ★NEW: Pass sender context to AI handler
                         "domain": domain,
                         "stage": stage,
                         "connections": connections

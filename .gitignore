@@ -8,3 +8,6 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# AI assistant child user list
+lambda/children.json

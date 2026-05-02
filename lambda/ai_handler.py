@@ -16,12 +16,36 @@ def lambda_handler(event, context):
     # Extract payload passed asynchronously from the WebSocket connect handler.
     # Rationale: Receiving active connections directly in the payload avoids an extra DynamoDB scan.
     user_msg = event.get('prompt', '')
+    # NEW: Extract sender identity to support dynamic persona switching
+    sender_id = event.get('senderId', '') 
     domain = event.get('domain')
     stage = event.get('stage')
     connections = event.get('connections', [])
     
     # Define the system prompt to enforce the persona and response constraints
     system_prompt = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。"
+
+    # ------------------------------------------------------------------
+    # NEW: Dynamic System Prompt Selection
+    # Rationale: Customizes the AI's persona based on the user's profile
+    # (e.g., simplified Japanese for children). The children's list is 
+    # kept in an untracked JSON file for privacy.
+    # ------------------------------------------------------------------
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        json_path = os.path.join(base_dir, 'children.json')
+        
+        with open(json_path, 'r', encoding='utf-8') as f:
+            children_list = json.load(f)
+            
+        if sender_id in children_list:
+            # Child-friendly prompt enforcing Hiragana/Katakana usage and gentle tone
+            system_prompt = "あなたは、ちいさなこどもと、おはなしする、やさしいAIです。こたえは、すべて「ひらがな」と「カタカナ」だけでかいてください。かんじは、ぜったいに、つかわないでください。こどもが、わかるような、かんたんな、ことばを、つかってください。"
+            print(f"Child user detected ({sender_id}). Applying simplified prompt.")
+    except FileNotFoundError:
+        print("children.json not found. Proceeding with default system prompt.")
+    except json.JSONDecodeError:
+        print("Invalid JSON format in children.json. Proceeding with default system prompt.")
 
     # ------------------------------------------------------------------
     # Execute model inference using the Bedrock Converse API
