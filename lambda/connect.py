@@ -9,7 +9,6 @@ from botocore.exceptions import ClientError
 dynamodb = boto3.resource('dynamodb')
 # Initialize Lambda client for asynchronous AI invocation
 lambda_client = boto3.client('lambda')
-
 # Load table references from environment variables injected by AWS CDK
 connections_table = dynamodb.Table(os.environ['TABLE_NAME'])
 history_table = dynamodb.Table(os.environ['HISTORY_TABLE_NAME']) 
@@ -67,7 +66,11 @@ def lambda_handler(event, context):
             # NEW: Extract dynamically selected Bedrock model ID from the client payload 
             # (fallback to Nova Lite to maintain backward compatibility)
             selected_model = body.get('modelId', 'amazon.nova-lite-v1:0')
-            
+
+            # NEW: Extract custom prompts from client payload
+            adult_prompt = body.get('adultPrompt')
+            child_prompt = body.get('childPrompt')
+
             timestamp = datetime.utcnow().isoformat()
             history_table.put_item(Item={
                 'roomId': 'general',
@@ -108,7 +111,9 @@ def lambda_handler(event, context):
                     ai_payload = {
                         "prompt": clean_msg,
                         "senderId": sender_name, 
-                        "modelId": selected_model, # NEW: Forward the selected model ID to the AI handler
+                        "modelId": selected_model, # Forward the selected model ID to the AI handler
+                        "adultPrompt": adult_prompt, # NEW: Forward adult prompt
+                        "childPrompt": child_prompt, # NEW: Forward child prompt
                         "domain": domain,
                         "stage": stage,
                         "connections": connections

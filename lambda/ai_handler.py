@@ -26,8 +26,13 @@ def lambda_handler(event, context):
     stage = event.get('stage')
     connections = event.get('connections', [])
     
-    # Define the system prompt to enforce the persona and response constraints
-    system_prompt = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。【重要】回答の先頭に「[AIアシスタント]:」などの送信者名を含めず、返答の本文から直接書き始めてください。"
+    # NEW: Extract dynamic prompts passed from the client's local storage
+    # Fallback to sane defaults if not provided to ensure stability
+    adult_prompt = event.get('adultPrompt') or "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。"
+    # Child-friendly prompt enforcing Hiragana/Katakana usage and gentle tone
+    child_prompt = event.get('childPrompt') or "あなたは、ちいさなこどもと、おはなしする、やさしいAIです。こたえは、すべて「ひらがな」と「カタカナ」だけでかいてください。"
+
+    system_prompt = adult_prompt
 
     # ------------------------------------------------------------------
     # Dynamic System Prompt Selection
@@ -43,8 +48,7 @@ def lambda_handler(event, context):
             children_list = json.load(f)
             
         if sender_id in children_list:
-            # Child-friendly prompt enforcing Hiragana/Katakana usage and gentle tone
-            system_prompt = "あなたは、ちいさなこどもと、おはなしする、やさしいAIです。こたえは、すべて「ひらがな」と「カタカナ」だけでかいてください。かんじは、ぜったいに、つかわないでください。こどもが、わかるような、かんたんな、ことばを、つかってください。"
+            system_prompt = child_prompt # CHANGED: Use the injected child prompt
             print(f"Child user detected ({sender_id}). Applying simplified prompt.")
     except FileNotFoundError:
         print("children.json not found. Proceeding with default system prompt.")

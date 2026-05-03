@@ -7,7 +7,7 @@
     <style>
         /* --- Existing Styles --- */
         body { font-family: sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; height: 100vh; box-sizing: border-box; }
-        #chat-container { width: 100%; max-width: 500px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: none; flex-direction: column; height: 85vh; overflow: hidden; }
+        #chat-container { width: 100%; max-width: 500px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: none; flex-direction: column; height: 85vh; overflow: hidden; position: relative; }
         #messages { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
         .message { padding: 10px 15px; border-radius: 20px; background-color: #e4e6eb; width: fit-content; max-width: 80%; word-break: break-all; }
         .system-msg { text-align: center; color: #888; font-size: 0.8em; align-self: center; background: none; }
@@ -37,16 +37,23 @@
         .typing-indicator .dot:nth-child(4) { animation-delay: 0.6s; }
         @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
 
-        /* --- NEW: AI Model Selector Styles --- */
-        #model-selector { padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; margin-right: 10px; font-size: 14px; background-color: #f9f9f9; }
+        /* --- NEW: Header & Settings Styles --- */
+        #header-bar { display: flex; justify-content: flex-end; padding: 10px 15px; background: #f9f9f9; border-bottom: 1px solid #ddd; }
+        #settings-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: #555; display: flex; align-items: center; gap: 5px; }
+        #settings-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 100; flex-direction: column; }
+        #settings-header { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #ddd; background: #f9f9f9; }
+        #settings-content { padding: 20px; overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 20px; }
+        .settings-group h3 { margin: 0 0 10px 0; font-size: 16px; color: #333; }
+        .radio-group { display: flex; flex-direction: column; gap: 8px; }
+        textarea.prompt-input { width: 100%; height: 100px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-family: sans-serif; resize: vertical; box-sizing: border-box;}
+        .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; }
+        #save-settings-btn { background-color: #28a745; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px; }
 
         @media screen and (max-width: 600px) {
             body { padding: 0; height: 100dvh; background-color: white; }
             #chat-container { max-width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
             #messages { padding: 10px; }
             #login-container { box-shadow: none; width: 80%; }
-            #model-selector { margin-bottom: 10px; margin-right: 0; width: 100%; } /* スマホ向けレイアウト調整 */
-            #input-area { flex-wrap: wrap; }
         }
     </style>
 </head>
@@ -62,6 +69,37 @@
 </div>
 
 <div id="chat-container">
+    <!-- NEW: System Header -->
+    <div id="header-bar">
+        <button id="settings-btn" onclick="openSettings()">⚙️ 設定</button>
+    </div>
+
+    <!-- NEW: Settings Modal -->
+    <div id="settings-modal">
+        <div id="settings-header">
+            <h2 style="margin: 0; font-size: 18px;">設定</h2>
+            <button class="close-btn" onclick="closeSettings()">×</button>
+        </div>
+        <div id="settings-content">
+            <div class="settings-group">
+                <h3>🤖 AIモデル選択</h3>
+                <div class="radio-group">
+                    <label><input type="radio" name="ai-model" value="amazon.nova-lite-v1:0"> Nova Lite</label>
+                    <label><input type="radio" name="ai-model" value="global.anthropic.claude-haiku-4-5-20251001-v1:0">Claude Haiku 4.5</label>
+                </div>
+            </div>
+            <div class="settings-group">
+                <h3>📝 システムプロンプト (大人向け)</h3>
+                <textarea id="prompt-adult" class="prompt-input"></textarea>
+            </div>
+            <div class="settings-group">
+                <h3>👶 システムプロンプト (子供向け)</h3>
+                <textarea id="prompt-child" class="prompt-input"></textarea>
+            </div>
+            <button id="save-settings-btn" onclick="saveSettings()">保存して閉じる</button>
+        </div>
+    </div>
+
     <div id="loading">過去のメッセージを読み込み中...</div>
     <div id="messages"></div>
     
@@ -72,12 +110,7 @@
     </div>
 
     <div id="input-area">
-        <!-- NEW: AI Model Selector -->
-        <select id="model-selector">
-            <option value="amazon.nova-lite-v1:0">Nova Lite (速い)</option>
-            <option value="global.anthropic.claude-haiku-4-5-20251001-v1:0">Claude Haiku 4.5</option>
-            <!-- <option value="apac.anthropic.claude-3-5-sonnet-20241022-v2:0">Claude Sonnet 3.5</option> -->
-        </select>
+        <!-- AI Model Selector was removed from here -->
         <input type="text" id="message-input" placeholder="メッセージを入力..." autocomplete="off">
         <button id="send-btn">送信</button>
     </div>
@@ -93,6 +126,7 @@
     const messageInput = document.getElementById('message-input');
     const sendBtn = document.getElementById('send-btn');
     const loadingDiv = document.getElementById('loading');
+    const settingsModal = document.getElementById('settings-modal');
 
     let ws;
     let lastEvaluatedKey = null;
@@ -100,13 +134,49 @@
     let hasMoreHistory = true;
     let currentUsername = '';
 
-    // --- NEW: Event Listeners for Enter key submission on Login Form ---
-    document.getElementById('username').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') login();
-    });
-    document.getElementById('password').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') login();
-    });
+    // --- NEW: Default Settings & Initialization ---
+    const DEFAULT_PROMPT_ADULT = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。\n【重要】回答の先頭に「[AIアシスタント]:」などの送信者名を含めず、返答の本文から直接書き始めてください。";
+    const DEFAULT_PROMPT_CHILD = "あなたは、ちいさなこどもと、おはなしする、やさしいAIです。こたえは、すべて「ひらがな」と「カタカナ」だけでかいてください。かんじは、ぜったいに、つかわないでください。こどもが、わかるような、かんたんな、ことばを、つかってください。\n【じゅうよう】こたえのさいしょに「[AIアシスタント]」と なまえを かかないでください。";
+
+    function loadSettings() {
+        const savedModel = localStorage.getItem('ai_model') || 'apac.amazon.nova-lite-v1:0';
+        const savedAdult = localStorage.getItem('prompt_adult') || DEFAULT_PROMPT_ADULT;
+        const savedChild = localStorage.getItem('prompt_child') || DEFAULT_PROMPT_CHILD;
+
+        const radio = document.querySelector(`input[name="ai-model"][value="${savedModel}"]`);
+        if (radio) radio.checked = true;
+        
+        document.getElementById('prompt-adult').value = savedAdult;
+        document.getElementById('prompt-child').value = savedChild;
+    }
+
+    function saveSettings() {
+        const selectedModel = document.querySelector('input[name="ai-model"]:checked').value;
+        const adultPrompt = document.getElementById('prompt-adult').value;
+        const childPrompt = document.getElementById('prompt-child').value;
+
+        localStorage.setItem('ai_model', selectedModel);
+        localStorage.setItem('prompt_adult', adultPrompt);
+        localStorage.setItem('prompt_child', childPrompt);
+        
+        closeSettings();
+    }
+
+    function openSettings() {
+        loadSettings();
+        settingsModal.style.display = 'flex';
+    }
+
+    function closeSettings() {
+        settingsModal.style.display = 'none';
+    }
+
+    // Initialize settings on load
+    loadSettings();
+
+    // --- Existing Event Listeners ---
+    document.getElementById('username').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
+    document.getElementById('password').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
 
     /**
      * Formats a timestamp to YYYY-MM-DD HH:mm:ss based on the user's local timezone.
@@ -295,8 +365,7 @@
             div.appendChild(timeSpan);
             messagesDiv.prepend(div);
         });
-        const newScrollHeight = messagesDiv.scrollHeight;
-        messagesDiv.scrollTop = newScrollHeight - oldScrollHeight;
+        messagesDiv.scrollTop = messagesDiv.scrollHeight - oldScrollHeight;
     }
 
     // Used primarily for system notifications
@@ -307,16 +376,16 @@
         messagesDiv.appendChild(div);
     }
 
-    function scrollToBottom() { 
-        messagesDiv.scrollTop = messagesDiv.scrollHeight; 
-    }
+    function scrollToBottom() { messagesDiv.scrollTop = messagesDiv.scrollHeight; }
 
     function sendMessage() {
         const text = messageInput.value.trim();
         if (text !== '' && ws.readyState === WebSocket.OPEN) {
             
-            // NEW: Retrieve selected AI model ID
-            const selectedModel = document.getElementById('model-selector').value;
+            // CHANGED: Pull settings directly from localStorage to send to backend
+            const selectedModel = localStorage.getItem('ai_model') || 'apac.amazon.nova-lite-v1:0';
+            const adultPrompt = localStorage.getItem('prompt_adult') || DEFAULT_PROMPT_ADULT;
+            const childPrompt = localStorage.getItem('prompt_child') || DEFAULT_PROMPT_CHILD;
 
             // Display the AI typing indicator if the user mentions the AI
             // Also sets a 15-second safety timeout to hide it if the backend fails
@@ -336,7 +405,9 @@
                 action: 'sendmessage',
                 msg: text,
                 sender: currentUsername,
-                modelId: selectedModel // NEW: Include selected model in WebSocket payload
+                modelId: selectedModel,
+                adultPrompt: adultPrompt, // NEW
+                childPrompt: childPrompt  // NEW
             }));
             messageInput.value = '';
         }
