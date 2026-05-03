@@ -4,6 +4,7 @@ import boto3
 from datetime import datetime
 from botocore.exceptions import ClientError
 
+
 # Initialize AWS clients outside the handler for execution environment reuse (Performance optimization)
 dynamodb = boto3.resource('dynamodb')
 # Initialize Lambda client for asynchronous AI invocation

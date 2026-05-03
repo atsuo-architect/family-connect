@@ -192,7 +192,7 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     }));
 
     // 2. Grant write access to persist AI responses directly into the chat history
-    chatHistoryTable.grantWriteData(aiHandlerLambda);
+    chatHistoryTable.grantReadWriteData(aiHandlerLambda);
 
     // 3. Grant permission to broadcast the AI's response asynchronously via API Gateway
     aiHandlerLambda.addToRolePolicy(new iam.PolicyStatement({

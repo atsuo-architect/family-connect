@@ -1,7 +1,9 @@
 import json
 import boto3
 import os
+import re
 from datetime import datetime
+from boto3.dynamodb.conditions import Key
 
 # Initialize DynamoDB resource to persist chat history
 dynamodb = boto3.resource('dynamodb')
@@ -25,7 +27,7 @@ def lambda_handler(event, context):
     connections = event.get('connections', [])
     
     # Define the system prompt to enforce the persona and response constraints
-    system_prompt = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。"
+    system_prompt = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。【重要】回答の先頭に「[AIアシスタント]:」などの送信者名を含めず、返答の本文から直接書き始めてください。"
 
     # ------------------------------------------------------------------
     # Dynamic System Prompt Selection
@@ -50,24 +52,91 @@ def lambda_handler(event, context):
         print("Invalid JSON format in children.json. Proceeding with default system prompt.")
 
     # ------------------------------------------------------------------
+    # Retrieve & Format Recent Chat History
+    # Rationale: Bedrock Converse API strictly requires alternating roles 
+    # (user -> assistant). We must group consecutive messages from the same role.
+    # ------------------------------------------------------------------
+    conversation_history = []
+    try:
+        # Query the last 6 messages (3 turns) from DynamoDB
+        response = history_table.query(
+            KeyConditionExpression=Key('roomId').eq('general'),
+            Limit=10, 
+            ScanIndexForward=False
+        )
+        items = response.get('Items', [])
+        
+        # Reverse to chronological order for the AI prompt
+        items.reverse()
+        
+        grouped_messages = []
+        # Format the history into Bedrock Converse API message structure
+        for item in items:
+            raw_text = item.get('message', '')
+            
+            # Skip the exact trigger message (connect.py just saved it to DB) to avoid prompt duplication
+            if item == items[-1] and ("@AI" in raw_text or "＠AI" in raw_text):
+                continue
+                
+            role = "assistant" if item.get('senderId') == "AIアシスタント" else "user"
+            text_content = raw_text
+            
+            # Prepend sender name for context
+            if role == "user":
+                sender_name = item.get('senderId', 'Unknown')
+                text_content = f"[{sender_name}]: {text_content}"
+                
+            # Group consecutive messages of the same role
+            if not grouped_messages:
+                grouped_messages.append({"role": role, "content": text_content})
+            else:
+                if grouped_messages[-1]["role"] == role:
+                    grouped_messages[-1]["content"] += f"\n{text_content}"
+                else:
+                    grouped_messages.append({"role": role, "content": text_content})
+
+        for msg in grouped_messages:
+            conversation_history.append({
+                "role": msg["role"],
+                "content": [{"text": msg["content"]}]
+            })
+            
+    except Exception as e:
+        print(f"Failed to retrieve chat history: {e}")
+        # Proceed with empty history on failure to ensure the app doesn't crash
+
+    # ------------------------------------------------------------------
     # Execute model inference using the Bedrock Converse API
     # Rationale: The Converse API abstracts away provider-specific payload structures,
     # enabling seamless model swapping without altering the request format.
     # ------------------------------------------------------------------
     try:
-        response = bedrock.converse(
-            # CHANGED: Use dynamic target model ID instead of hardcoded string
-            modelId=target_model, 
-            messages=[{
+        # Append the current user's message safely (grouping if previous was also user)
+        current_msg_text = f"[{sender_id}]: {user_msg}"
+        if conversation_history and conversation_history[-1]["role"] == "user":
+            conversation_history[-1]["content"][0]["text"] += f"\n{current_msg_text}"
+        else:
+            conversation_history.append({
                 "role": "user",
-                "content": [{"text": user_msg}]
-            }],
+                "content": [{"text": current_msg_text}]
+            })
+
+        # Debug log to verify the context payload
+        print(f"Bedrock Messages Payload: {json.dumps(conversation_history, ensure_ascii=False)}")
+
+        response = bedrock.converse(
+            modelId=target_model, 
+            messages=conversation_history, 
             system=[{"text": system_prompt}],
             inferenceConfig={"maxTokens": 800}
         )
         
         # Extract the generated text from the Converse API response structure
         ai_reply = response['output']['message']['content'][0]['text']
+        
+        # NEW: Regex cleaner to strip hallucinated prefixes like "[AIアシスタント]: "
+        # Rationale: Provides a robust safety net against few-shot pattern mimicry.
+        ai_reply = re.sub(r'^(?:\[|【)(?:AI|AIアシスタント)(?:\]|】):?\s*', '', ai_reply).strip()
         print(f"AI Reply: {ai_reply}")
 
     except Exception as e:
