@@ -11,7 +11,7 @@
         #messages { flex-grow: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
         .message { padding: 10px 15px; border-radius: 20px; background-color: #e4e6eb; width: fit-content; max-width: 80%; word-break: break-all; }
         .system-msg { text-align: center; color: #888; font-size: 0.8em; align-self: center; background: none; }
-        #input-area { display: flex; padding: 15px; border-top: 1px solid #ddd; background: white; }
+        #input-area { display: flex; padding: 15px; border-top: 1px solid #ddd; background: white; align-items: center; }
         #message-input { flex-grow: 1; padding: 10px; border: 1px solid #ccc; border-radius: 20px; outline: none; font-size: 16px; }
         #send-btn { background-color: #0084ff; color: white; border: none; padding: 10px 20px; margin-left: 10px; border-radius: 20px; cursor: pointer; font-weight: bold; }
         #send-btn:hover { background-color: #0073e6; }
@@ -25,7 +25,7 @@
         .login-input { padding: 10px; border: 1px solid #ccc; border-radius: 5px; font-size: 16px; outline: none; }
         #login-btn { background-color: #0084ff; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; font-size: 16px; }
 
-        /* --- NEW: Login Loading Spinner Styles --- */
+        /* --- Login Loading Spinner Styles --- */
         #login-spinner { display: none; width: 30px; height: 30px; border: 4px solid #f3f3f3; border-top: 4px solid #0084ff; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
@@ -37,7 +37,7 @@
         .typing-indicator .dot:nth-child(4) { animation-delay: 0.6s; }
         @keyframes blink { 0% { opacity: 0.2; } 20% { opacity: 1; } 100% { opacity: 0.2; } }
 
-        /* --- NEW: Header & Settings Styles --- */
+        /* --- Header & Settings Styles --- */
         #header-bar { display: flex; justify-content: flex-end; padding: 10px 15px; background: #f9f9f9; border-bottom: 1px solid #ddd; }
         #settings-btn { background: none; border: none; cursor: pointer; font-size: 16px; color: #555; display: flex; align-items: center; gap: 5px; }
         #settings-modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; z-index: 100; flex-direction: column; }
@@ -49,11 +49,17 @@
         .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; }
         #save-settings-btn { background-color: #28a745; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px; }
 
+        /* --- NEW: Attachment Button Styles --- */
+        #attach-btn { background-color: #e4e6eb; color: #333; border: none; padding: 10px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: 10px; transition: background-color 0.2s; }
+        #attach-btn:hover { background-color: #d8dadf; }
+        #attach-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
         @media screen and (max-width: 600px) {
             body { padding: 0; height: 100dvh; background-color: white; }
             #chat-container { max-width: 100%; height: 100%; border-radius: 0; box-shadow: none; }
             #messages { padding: 10px; }
             #login-container { box-shadow: none; width: 80%; }
+            #input-area { padding: 10px; }
         }
     </style>
 </head>
@@ -64,17 +70,17 @@
     <input type="text" id="username" class="login-input" placeholder="ユーザー名">
     <input type="password" id="password" class="login-input" placeholder="パスワード">
     <button id="login-btn" onclick="login()">ログイン</button>
-    <!-- NEW: Loading Spinner DOM Element -->
+    <!-- Loading Spinner DOM Element -->
     <div id="login-spinner"></div>
 </div>
 
 <div id="chat-container">
-    <!-- NEW: System Header -->
+    <!-- System Header -->
     <div id="header-bar">
         <button id="settings-btn" onclick="openSettings()">⚙️ 設定</button>
     </div>
 
-    <!-- NEW: Settings Modal -->
+    <!-- Settings Modal -->
     <div id="settings-modal">
         <div id="settings-header">
             <h2 style="margin: 0; font-size: 18px;">設定</h2>
@@ -110,7 +116,10 @@
     </div>
 
     <div id="input-area">
-        <!-- AI Model Selector was removed from here -->
+        <!-- Attachment Button and Hidden File Input -->
+        <button id="attach-btn" title="画像を添付">📷</button>
+        <input type="file" id="file-input" accept="image/*" style="display: none;">
+        
         <input type="text" id="message-input" placeholder="メッセージを入力..." autocomplete="off">
         <button id="send-btn">送信</button>
     </div>
@@ -127,6 +136,11 @@
     const sendBtn = document.getElementById('send-btn');
     const loadingDiv = document.getElementById('loading');
     const settingsModal = document.getElementById('settings-modal');
+    
+    // File upload elements
+    const attachBtn = document.getElementById('attach-btn');
+    const fileInput = document.getElementById('file-input');
+    let pendingUploadFile = null;
 
     let ws;
     let lastEvaluatedKey = null;
@@ -134,12 +148,12 @@
     let hasMoreHistory = true;
     let currentUsername = '';
 
-    // --- NEW: Default Settings & Initialization ---
+    // --- Default Settings & Initialization ---
     const DEFAULT_PROMPT_ADULT = "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。家族からの質問に対して、優しく、簡潔に、親しみやすい口調で答えてください。\n【重要】回答の先頭に「[AIアシスタント]:」などの送信者名を含めず、返答の本文から直接書き始めてください。";
     const DEFAULT_PROMPT_CHILD = "あなたは、ちいさなこどもと、おはなしする、やさしいAIです。こたえは、すべて「ひらがな」と「カタカナ」だけでかいてください。かんじは、ぜったいに、つかわないでください。こどもが、わかるような、かんたんな、ことばを、つかってください。\n【じゅうよう】こたえのさいしょに「[AIアシスタント]」と なまえを かかないでください。";
 
     function loadSettings() {
-        const savedModel = localStorage.getItem('ai_model') || 'apac.amazon.nova-lite-v1:0';
+        const savedModel = localStorage.getItem('ai_model') || 'amazon.nova-lite-v1:0';
         const savedAdult = localStorage.getItem('prompt_adult') || DEFAULT_PROMPT_ADULT;
         const savedChild = localStorage.getItem('prompt_child') || DEFAULT_PROMPT_CHILD;
 
@@ -219,7 +233,7 @@
             return;
         }
 
-        // NEW: Disable button and show spinner to indicate processing
+        // Disable button and show spinner to indicate processing
         loginBtn.style.display = 'none';
         spinner.style.display = 'block';
 
@@ -297,6 +311,9 @@
                 if (!lastEvaluatedKey) hasMoreHistory = false;
                 isFetching = false;
                 loadingDiv.style.display = 'none';
+            } else if (data.type === 'presignedUrl') {
+                // NEW: Handle incoming presigned URL and start direct S3 upload
+                uploadToS3(data.url, data.key);
             } else if (data.message) {
                 // Hide the AI typing indicator once the AI responds
                 if (data.senderId === 'AIアシスタント') {
@@ -382,8 +399,7 @@
         const text = messageInput.value.trim();
         if (text !== '' && ws.readyState === WebSocket.OPEN) {
             
-            // CHANGED: Pull settings directly from localStorage to send to backend
-            const selectedModel = localStorage.getItem('ai_model') || 'apac.amazon.nova-lite-v1:0';
+            const selectedModel = localStorage.getItem('ai_model') || 'amazon.nova-lite-v1:0';
             const adultPrompt = localStorage.getItem('prompt_adult') || DEFAULT_PROMPT_ADULT;
             const childPrompt = localStorage.getItem('prompt_child') || DEFAULT_PROMPT_CHILD;
 
@@ -406,14 +422,80 @@
                 msg: text,
                 sender: currentUsername,
                 modelId: selectedModel,
-                adultPrompt: adultPrompt, // NEW
-                childPrompt: childPrompt  // NEW
+                adultPrompt: adultPrompt, 
+                childPrompt: childPrompt  
             }));
             messageInput.value = '';
         }
     }
 
-    // Event Listeners
+    // --- NEW: Image Attachment Handling ---
+    attachBtn.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // Strict 5MB payload limit for stability
+        if (file.size > 5 * 1024 * 1024) {
+            alert('ファイルサイズは5MB以下にしてください。');
+            fileInput.value = '';
+            return;
+        }
+
+        pendingUploadFile = file;
+        attachBtn.disabled = true;
+        attachBtn.textContent = '⏳'; // Visual loading feedback
+
+        // Phase 1 of Upload: Request Presigned URL from Backend
+        ws.send(JSON.stringify({
+            action: 'requestPresignedUrl',
+            fileName: file.name,
+            contentType: file.type
+        }));
+    });
+
+    // Phase 2 of Upload: Execute HTTP PUT to S3 using the Presigned URL
+    async function uploadToS3(presignedUrl, s3Key) {
+        try {
+            const response = await fetch(presignedUrl, {
+                method: 'PUT',
+                body: pendingUploadFile,
+                headers: {
+                    'Content-Type': pendingUploadFile.type
+                }
+            });
+
+            if (response.ok) {
+                const selectedModel = localStorage.getItem('ai_model') || 'amazon.nova-lite-v1:0';
+                const adultPrompt = localStorage.getItem('prompt_adult') || DEFAULT_PROMPT_ADULT;
+                const childPrompt = localStorage.getItem('prompt_child') || DEFAULT_PROMPT_CHILD;
+
+                // Automatically notify the chat and trigger AI multi-modal inference
+                ws.send(JSON.stringify({
+                    action: 'sendmessage',
+                    msg: `[画像が送信されました: ${pendingUploadFile.name}] \n@AI この画像について教えて`,
+                    sender: currentUsername,
+                    modelId: selectedModel,
+                    adultPrompt: adultPrompt,
+                    childPrompt: childPrompt,
+                    s3Key: s3Key // Pass the S3 object key to the backend for Bedrock retrieval
+                }));
+            } else {
+                alert('画像のアップロードに失敗しました。');
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            alert('画像のアップロードに失敗しました。');
+        } finally {
+            // Restore UI state
+            attachBtn.disabled = false;
+            attachBtn.textContent = '📷';
+            fileInput.value = '';
+            pendingUploadFile = null;
+        }
+    }
+
     messagesDiv.addEventListener('scroll', () => { if (messagesDiv.scrollTop === 0) fetchHistory(); });
     sendBtn.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
