@@ -33,6 +33,24 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
+    // ------------------------------------------------------------------
+    // NEW: S3 Bucket for Multi-modal Image Uploads
+    // Rationale: Facilitates presigned URL uploads directly from the client,
+    // bypassing API Gateway payload size limits.
+    // ------------------------------------------------------------------
+    const imageBucket = new s3.Bucket(this, 'FamilyChatImageBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      cors: [{
+        allowedMethods: [s3.HttpMethods.PUT, s3.HttpMethods.GET],
+        allowedOrigins: ['*'], // Note: In production, restrict to CloudFront domain
+        allowedHeaders: ['*'],
+      }],
+      lifecycleRules: [{
+        expiration: cdk.Duration.days(30), // Cost optimization and privacy
+      }],
+    });
+
     // Core WebSocket message handler
     const connectLambda = new lambda.Function(this, 'ConnectHandlerLambda', {
       runtime: lambda.Runtime.PYTHON_3_12,
@@ -41,11 +59,14 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       environment: {
         TABLE_NAME: connectionsTable.tableName,
         HISTORY_TABLE_NAME: chatHistoryTable.tableName,
+        IMAGE_BUCKET_NAME: imageBucket.bucketName, // NEW: Inject bucket name
       }
     });
 
     connectionsTable.grantReadWriteData(connectLambda);
     chatHistoryTable.grantReadWriteData(connectLambda);
+    // NEW: Grant Write permissions to generate presigned PUT URLs
+    imageBucket.grantWrite(connectLambda); 
 
     // WebSocket API configuration
     const webSocketApi = new apigwv2.WebSocketApi(this, 'FamilyConnectApi', {
@@ -182,6 +203,7 @@ export class FamilyConnectBackendStack extends cdk.Stack {
       timeout: cdk.Duration.seconds(60), // Extended timeout allocated for Bedrock API inference
       environment: {
         HISTORY_TABLE_NAME: chatHistoryTable.tableName, 
+        IMAGE_BUCKET_NAME: imageBucket.bucketName, // NEW: Inject bucket name
       }
     });
 
@@ -204,6 +226,9 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     // Rationale: Enables event-driven delegation via environment variables, avoiding tight coupling.
     aiHandlerLambda.grantInvoke(connectLambda);
     connectLambda.addEnvironment('AI_LAMBDA_ARN', aiHandlerLambda.functionArn);
+    
+    // 5. NEW: Grant Read permissions to fetch uploaded images for multi-modal inference
+    imageBucket.grantRead(aiHandlerLambda);
     // ==============================================================================
 
 
