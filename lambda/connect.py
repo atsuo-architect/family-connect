@@ -1,6 +1,7 @@
 import os
 import json
 import boto3
+import uuid # NEW: Generate a unique S3 object key
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -9,6 +10,9 @@ from botocore.exceptions import ClientError
 dynamodb = boto3.resource('dynamodb')
 # Initialize Lambda client for asynchronous AI invocation
 lambda_client = boto3.client('lambda')
+# NEW: S3 client initialization
+s3_client = boto3.client('s3')
+
 # Load table references from environment variables injected by AWS CDK
 connections_table = dynamodb.Table(os.environ['TABLE_NAME'])
 history_table = dynamodb.Table(os.environ['HISTORY_TABLE_NAME']) 
@@ -56,6 +60,41 @@ def lambda_handler(event, context):
             if action == 'ping':
                 print(f"Received Keep-Alive ping from {connection_id}")
                 return {'statusCode': 200, 'body': 'pong'}
+
+            # ------------------------------------------------------------------
+            # NEW: Handle Presigned URL requests for direct S3 image uploads
+            # ------------------------------------------------------------------
+            if action == 'requestPresignedUrl':
+                bucket_name = os.environ.get('IMAGE_BUCKET_NAME')
+                file_name = body.get('fileName', 'image.jpg')
+                content_type = body.get('contentType', 'image/jpeg')
+                
+                ext = file_name.split('.')[-1] if '.' in file_name else 'jpg'
+                unique_key = f"uploads/{uuid.uuid4().hex}.{ext}"
+                
+                try:
+                    presigned_url = s3_client.generate_presigned_url(
+                        'put_object',
+                        Params={
+                            'Bucket': bucket_name,
+                            'Key': unique_key,
+                            'ContentType': content_type
+                        },
+                        ExpiresIn=300 
+                    )
+                    
+                    apigw_client.post_to_connection(
+                        ConnectionId=connection_id,
+                        Data=json.dumps({
+                            'type': 'presignedUrl',
+                            'url': presigned_url,
+                            'key': unique_key
+                        }, ensure_ascii=False).encode('utf-8')
+                    )
+                except Exception as e:
+                    print(f"Error generating presigned URL: {e}")
+                
+                return {'statusCode': 200, 'body': 'Presigned URL generated'}
 
             if action != 'sendmessage':
                 print(f"Ignored unknown or malformed payload from {connection_id}: {raw_body}")

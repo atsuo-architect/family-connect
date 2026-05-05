@@ -11,6 +11,8 @@ history_table = dynamodb.Table(os.environ['HISTORY_TABLE_NAME'])
 
 # Initialize Bedrock runtime client
 bedrock = boto3.client('bedrock-runtime', region_name='ap-northeast-1')
+# NEW: S3 client for fetching uploaded images
+s3_client = boto3.client('s3')
 
 def lambda_handler(event, context):
     print(f"Received event: {json.dumps(event)}")
@@ -25,7 +27,11 @@ def lambda_handler(event, context):
     domain = event.get('domain')
     stage = event.get('stage')
     connections = event.get('connections', [])
-    
+
+    # NEW: Extract the S3 key and bucket for multi-modal inference
+    s3_key = event.get('s3Key')
+    image_bucket = os.environ.get('IMAGE_BUCKET_NAME')
+        
     # NEW: Extract dynamic prompts passed from the client's local storage
     # Fallback to sane defaults if not provided to ensure stability
     adult_prompt = event.get('adultPrompt') or "あなたは家族のチャットルームにいる賢くて親切なAIアシスタントです。"
@@ -116,13 +122,36 @@ def lambda_handler(event, context):
     # ------------------------------------------------------------------
     try:
         # Append the current user's message safely (grouping if previous was also user)
-        current_msg_text = f"[{sender_id}]: {user_msg}"
+        current_msg_content = [{"text": f"[{sender_id}]: {user_msg}"}]
+        
+        # NEW: Append image content if an S3 key was provided
+        if s3_key and image_bucket:
+            try:
+                s3_response = s3_client.get_object(Bucket=image_bucket, Key=s3_key)
+                image_bytes = s3_response['Body'].read()
+                
+                ext = s3_key.split('.')[-1].lower()
+                if ext == 'jpg': ext = 'jpeg'
+                if ext not in ['jpeg', 'png', 'gif', 'webp']:
+                    ext = 'jpeg' 
+                
+                current_msg_content.append({
+                    "image": {
+                        "format": ext,
+                        "source": {"bytes": image_bytes}
+                    }
+                })
+                print(f"Successfully injected multi-modal image from S3: {s3_key}")
+            except Exception as s3_err:
+                print(f"Failed to fetch image from S3: {s3_err}")
+                current_msg_content[0]["text"] += "\n(システムエラー: 画像の取得に失敗しました)"
+
         if conversation_history and conversation_history[-1]["role"] == "user":
-            conversation_history[-1]["content"][0]["text"] += f"\n{current_msg_text}"
+            conversation_history[-1]["content"].extend(current_msg_content)
         else:
             conversation_history.append({
                 "role": "user",
-                "content": [{"text": current_msg_text}]
+                "content": current_msg_content
             })
 
         # Debug log to verify the context payload
