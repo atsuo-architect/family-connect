@@ -66,7 +66,7 @@ export class FamilyConnectBackendStack extends cdk.Stack {
     connectionsTable.grantReadWriteData(connectLambda);
     chatHistoryTable.grantReadWriteData(connectLambda);
     // NEW: Grant Write permissions to generate presigned PUT URLs
-    imageBucket.grantWrite(connectLambda); 
+    imageBucket.grantReadWrite(connectLambda); 
 
     // WebSocket API configuration
     const webSocketApi = new apigwv2.WebSocketApi(this, 'FamilyConnectApi', {
