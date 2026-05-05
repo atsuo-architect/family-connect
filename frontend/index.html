@@ -49,10 +49,13 @@
         .close-btn { background: none; border: none; font-size: 20px; cursor: pointer; }
         #save-settings-btn { background-color: #28a745; color: white; border: none; padding: 12px; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px; }
 
-        /* --- NEW: Attachment Button Styles --- */
+        /* Attachment Button Styles */
         #attach-btn { background-color: #e4e6eb; color: #333; border: none; padding: 10px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; margin-right: 10px; transition: background-color 0.2s; }
         #attach-btn:hover { background-color: #d8dadf; }
         #attach-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Chat Image Styles */
+        .chat-image { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 8px; display: block; object-fit: contain; }
 
         @media screen and (max-width: 600px) {
             body { padding: 0; height: 100dvh; background-color: white; }
@@ -327,8 +330,18 @@
                 // Append message text securely
                 const textDiv = document.createElement('div');
                 textDiv.textContent = `[${senderName}] ${data.message}`;
+                div.appendChild(textDiv);
+
+                // NEW: Render the image if a presigned URL is included in the payload
+                if (data.imageUrl) {
+                    const img = document.createElement('img');
+                    img.src = data.imageUrl;
+                    img.className = 'chat-image';
+                    // Scroll to bottom once the image is fully loaded to prevent UI jumping
+                    img.onload = () => scrollToBottom(); 
+                    div.appendChild(img);
+                }
                 
-                // Append local timestamp
                 const timeSpan = document.createElement('span');
                 timeSpan.className = 'timestamp';
                 timeSpan.textContent = formatTime(data.timestamp);
@@ -337,7 +350,10 @@
                 div.appendChild(timeSpan);
                 messagesDiv.appendChild(div);
                 
+                // Fallback scroll for text-only messages
+                if (!data.imageUrl) {
                 scrollToBottom();
+                }
             }
         };
 
@@ -372,8 +388,16 @@
             // Construct message text
             const textDiv = document.createElement('div');
             textDiv.textContent = `[${senderName}] ${msg.message}`;
+            div.appendChild(textDiv);
+
+            // NEW: Render images for historical messages
+            if (msg.imageUrl) {
+                const img = document.createElement('img');
+                img.src = msg.imageUrl;
+                img.className = 'chat-image';
+                div.appendChild(img);
+            }
             
-            // Construct local timestamp
             const timeSpan = document.createElement('span');
             timeSpan.className = 'timestamp';
             timeSpan.textContent = formatTime(msg.timestamp);
@@ -429,7 +453,7 @@
         }
     }
 
-    // --- NEW: Image Attachment Handling ---
+    // Image Attachment Handling ---
     attachBtn.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', (e) => {
@@ -471,15 +495,15 @@
                 const adultPrompt = localStorage.getItem('prompt_adult') || DEFAULT_PROMPT_ADULT;
                 const childPrompt = localStorage.getItem('prompt_child') || DEFAULT_PROMPT_CHILD;
 
-                // Automatically notify the chat and trigger AI multi-modal inference
+                // Broadcast notification to the chat and store the s3Key in history
                 ws.send(JSON.stringify({
                     action: 'sendmessage',
-                    msg: `[画像が送信されました: ${pendingUploadFile.name}] \n@AI この画像について教えて`,
+                    msg: `📷 画像が送信されました`,
                     sender: currentUsername,
                     modelId: selectedModel,
                     adultPrompt: adultPrompt,
                     childPrompt: childPrompt,
-                    s3Key: s3Key // Pass the S3 object key to the backend for Bedrock retrieval
+                    s3Key: s3Key 
                 }));
             } else {
                 alert('画像のアップロードに失敗しました。');
@@ -495,7 +519,7 @@
             pendingUploadFile = null;
         }
     }
-
+    
     messagesDiv.addEventListener('scroll', () => { if (messagesDiv.scrollTop === 0) fetchHistory(); });
     sendBtn.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });

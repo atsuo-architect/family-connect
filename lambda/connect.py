@@ -1,7 +1,7 @@
 import os
 import json
 import boto3
-import uuid # NEW: Generate a unique S3 object key
+import uuid # Generate a unique S3 object key
 from datetime import datetime
 from botocore.exceptions import ClientError
 
@@ -26,6 +26,20 @@ def lambda_handler(event, context):
     route_key = event.get('requestContext', {}).get('routeKey')
     connection_id = event.get('requestContext', {}).get('connectionId')
 
+    # Helper function to generate read-only presigned URLs for UI rendering
+    def get_presigned_url(key):
+        if not key: return None
+        bucket = os.environ.get('IMAGE_BUCKET_NAME')
+        if not bucket: return None
+        try:
+            return s3_client.generate_presigned_url(
+                'get_object',
+                Params={'Bucket': bucket, 'Key': key},
+                ExpiresIn=3600 # URL valid for 1 hour for security
+            )
+        except Exception as e:
+            print(f"Error generating GET URL: {e}")
+            return None
     try:
         # ----------------------------------------------------------------------
         # Route: $connect
@@ -62,7 +76,7 @@ def lambda_handler(event, context):
                 return {'statusCode': 200, 'body': 'pong'}
 
             # ------------------------------------------------------------------
-            # NEW: Handle Presigned URL requests for direct S3 image uploads
+            # Handle Presigned URL requests for direct S3 image uploads
             # ------------------------------------------------------------------
             if action == 'requestPresignedUrl':
                 bucket_name = os.environ.get('IMAGE_BUCKET_NAME')
@@ -106,30 +120,48 @@ def lambda_handler(event, context):
             # (fallback to Nova Lite to maintain backward compatibility)
             selected_model = body.get('modelId', 'amazon.nova-lite-v1:0')
 
-            # NEW: Extract custom prompts from client payload
+
+
+            # Extract custom prompts from client payload
             adult_prompt = body.get('adultPrompt')
             child_prompt = body.get('childPrompt')
-
+            
+            s3_key = body.get('s3Key') 
             timestamp = datetime.utcnow().isoformat()
-            history_table.put_item(Item={
+
+            # Save message to DynamoDB
+            item_to_save = {
                 'roomId': 'general',
                 'timestamp': timestamp,
                 'message': msg,
                 'senderId': sender_name
-            })
+            }
+            if s3_key:
+                item_to_save['s3Key'] = s3_key
+                
+            history_table.put_item(Item=item_to_save)
             
+            # Prepare broadcast payload with dynamically generated image URL
+            broadcast_payload = {
+                'message': msg,
+                'senderId': sender_name,
+                'timestamp': timestamp
+            }
+            if s3_key:
+                image_url = get_presigned_url(s3_key)
+                if image_url:
+                    broadcast_payload['imageUrl'] = image_url
+
             response = connections_table.scan()
             connections = response.get('Items', [])
             
+            # Broadcast to all active clients
             for item in connections:
                 conn_id = item['connectionId']
                 try:
                     apigw_client.post_to_connection(
                         ConnectionId=conn_id,
-                        Data=json.dumps({
-                            'message': msg,
-                            'senderId': sender_name
-                        }, ensure_ascii=False).encode('utf-8')
+                        Data=json.dumps(broadcast_payload, ensure_ascii=False).encode('utf-8')
                     )
                 except apigw_client.exceptions.GoneException:
                     print(f"Stale connection detected. Connection {conn_id} is gone. Ignoring.")
@@ -153,6 +185,8 @@ def lambda_handler(event, context):
                         "modelId": selected_model, # Forward the selected model ID to the AI handler
                         "adultPrompt": adult_prompt, # NEW: Forward adult prompt
                         "childPrompt": child_prompt, # NEW: Forward child prompt
+                        "s3Key": s3_key, 
+
                         "domain": domain,
                         "stage": stage,
                         "connections": connections
@@ -195,6 +229,13 @@ def lambda_handler(event, context):
             response = history_table.query(**query_params)
             items = response.get('Items', [])
             new_last_key = response.get('LastEvaluatedKey')
+
+            # Attach temporary viewing URLs for history items containing images
+            for item in items:
+                if 's3Key' in item:
+                    item_url = get_presigned_url(item['s3Key'])
+                    if item_url:
+                        item['imageUrl'] = item_url
 
             apigw_client.post_to_connection(
                 ConnectionId=connection_id,
