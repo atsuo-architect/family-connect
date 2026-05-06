@@ -54,8 +54,27 @@
         #attach-btn:hover { background-color: #d8dadf; }
         #attach-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Chat Image Styles */
-        .chat-image { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 8px; display: block; object-fit: contain; }
+        /* Chat Image Styles - Modified for clickability */
+        .chat-image { max-width: 100%; max-height: 250px; border-radius: 8px; margin-top: 8px; display: block; object-fit: contain; cursor: pointer; transition: opacity 0.2s; }
+        .chat-image:hover { opacity: 0.9; }
+
+        /* --- NEW: Image Modal (Fullscreen Viewer) Styles --- */
+        #image-modal { 
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0, 0, 0, 0.9); z-index: 1000; flex-direction: column; 
+            justify-content: center; align-items: center; 
+        }
+        #modal-img { max-width: 95%; max-height: 85vh; object-fit: contain; border-radius: 8px; }
+        .modal-controls { 
+            position: absolute; top: 20px; right: 20px; display: flex; gap: 15px; 
+            background: rgba(0,0,0,0.5); padding: 10px; border-radius: 30px;
+        }
+        .modal-btn { 
+            background: none; color: white; border: none; cursor: pointer; 
+            font-size: 24px; display: flex; align-items: center; justify-content: center;
+            transition: transform 0.2s;
+        }
+        .modal-btn:hover { transform: scale(1.1); }
 
         @media screen and (max-width: 600px) {
             body { padding: 0; height: 100dvh; background-color: white; }
@@ -67,6 +86,16 @@
     </style>
 </head>
 <body>
+
+<!-- NEW: Fullscreen Image Modal -->
+<div id="image-modal">
+    <div class="modal-controls">
+        <button id="modal-share-btn" class="modal-btn" title="Share">📤</button>
+        <button id="modal-download-btn" class="modal-btn" title="Download">⬇️</button>
+        <button id="modal-close-btn" class="modal-btn" title="Close">✖️</button>
+    </div>
+    <img id="modal-img" src="" alt="Fullscreen Image">
+</div>
 
 <div id="login-container">
     <h2 style="text-align: center; margin-top: 0; color: #333;">家族ログイン</h2>
@@ -338,6 +367,9 @@
                     img.src = data.imageUrl;
                     img.className = 'chat-image';
                     // Scroll to bottom once the image is fully loaded to prevent UI jumping
+
+                    // NEW: Add click listener to open fullscreen modal
+                    img.addEventListener('click', () => openImageModal(img.src));
                     img.onload = () => scrollToBottom(); 
                     div.appendChild(img);
                 }
@@ -395,6 +427,10 @@
                 const img = document.createElement('img');
                 img.src = msg.imageUrl;
                 img.className = 'chat-image';
+                
+                // NEW: Add click listener to open fullscreen modal
+                img.addEventListener('click', () => openImageModal(img.src));
+                
                 div.appendChild(img);
             }
             
@@ -523,6 +559,85 @@
     messagesDiv.addEventListener('scroll', () => { if (messagesDiv.scrollTop === 0) fetchHistory(); });
     sendBtn.addEventListener('click', sendMessage);
     messageInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+    // ------------------------------------------------------------------
+    // NEW: Fullscreen Image Modal Logic (View, Download, Share)
+    // ------------------------------------------------------------------
+    const imageModal = document.getElementById('image-modal');
+    const modalImg = document.getElementById('modal-img');
+    let currentModalImageUrl = '';
+
+    // Open modal and display the clicked image
+    function openImageModal(url) {
+        currentModalImageUrl = url;
+        modalImg.src = url;
+        imageModal.style.display = 'flex';
+    }
+
+    // Close modal
+    document.getElementById('modal-close-btn').addEventListener('click', () => {
+        imageModal.style.display = 'none';
+        modalImg.src = '';
+    });
+
+    // Close modal when clicking on the dark background
+    imageModal.addEventListener('click', (e) => {
+        if (e.target === imageModal) {
+            imageModal.style.display = 'none';
+            modalImg.src = '';
+        }
+    });
+
+    // Handle Image Download
+    document.getElementById('modal-download-btn').addEventListener('click', async () => {
+        try {
+            const response = await fetch(currentModalImageUrl);
+            const blob = await response.blob();
+            const blobUrl = window.URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = `family-photo-${new Date().getTime()}.jpg`; 
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(blobUrl);
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('ダウンロードに失敗しました。');
+        }
+    });
+
+    // Handle Image Sharing via Web Share API
+    document.getElementById('modal-share-btn').addEventListener('click', async () => {
+        if (!navigator.share) {
+            alert('お使いのブラウザは共有機能に対応していません。');
+            return;
+        }
+
+        try {
+            const response = await fetch(currentModalImageUrl);
+            const blob = await response.blob();
+            const ext = blob.type.split('/')[1] || 'jpeg';
+            const file = new File([blob], `shared-photo.${ext}`, { type: blob.type });
+
+            if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                await navigator.share({
+                    title: 'Family Chat Photo',
+                    files: [file]
+                });
+            } else {
+                await navigator.share({
+                    title: 'Family Chat Photo',
+                    url: currentModalImageUrl
+                });
+            }
+        } catch (error) {
+            if (error.name !== 'AbortError') {
+                console.error('Share error:', error);
+            }
+        }
+    });
 </script>
 
 </body>
