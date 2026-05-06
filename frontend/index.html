@@ -364,6 +364,7 @@
                 // NEW: Render the image if a presigned URL is included in the payload
                 if (data.imageUrl) {
                     const img = document.createElement('img');
+                    img.crossOrigin = "anonymous"; // FIX: Prevent CORS cache issues for future fetches
                     img.src = data.imageUrl;
                     img.className = 'chat-image';
                     // Scroll to bottom once the image is fully loaded to prevent UI jumping
@@ -425,6 +426,7 @@
             // NEW: Render images for historical messages
             if (msg.imageUrl) {
                 const img = document.createElement('img');
+                img.crossOrigin = "anonymous"; // FIX: Prevent CORS cache issues for future fetches
                 img.src = msg.imageUrl;
                 img.className = 'chat-image';
                 
@@ -591,7 +593,8 @@
     // Handle Image Download
     document.getElementById('modal-download-btn').addEventListener('click', async () => {
         try {
-            const response = await fetch(currentModalImageUrl);
+            // FIX: Append { cache: 'no-cache' } to bypass stale non-CORS browser caches
+            const response = await fetch(currentModalImageUrl, { cache: 'no-cache' });
             const blob = await response.blob();
             const blobUrl = window.URL.createObjectURL(blob);
             
@@ -616,7 +619,8 @@
         }
 
         try {
-            const response = await fetch(currentModalImageUrl);
+            // FIX: Append { cache: 'no-cache' } to bypass stale non-CORS browser caches
+            const response = await fetch(currentModalImageUrl, { cache: 'no-cache' });
             const blob = await response.blob();
             const ext = blob.type.split('/')[1] || 'jpeg';
             const file = new File([blob], `shared-photo.${ext}`, { type: blob.type });
