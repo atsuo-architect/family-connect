@@ -47,7 +47,7 @@ export class FamilyConnectBackendStack extends cdk.Stack {
         allowedHeaders: ['*'],
       }],
       lifecycleRules: [{
-        expiration: cdk.Duration.days(30), // Cost optimization and privacy
+        expiration: cdk.Duration.days(1), // Cost optimization and privacy
       }],
     });
 
