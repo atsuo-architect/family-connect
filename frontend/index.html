@@ -120,13 +120,13 @@
     <video id="modal-video" src="" controls playsinline style="display: none;"></video>
 </div>
 
-<form id="login-container">
+<div id="login-container">
     <h2 style="text-align: center; margin-top: 0; color: #333;">家族ログイン</h2>
     <input type="text" id="username" name="username" class="login-input" placeholder="ユーザー名" autocomplete="username" required>
     <input type="password" id="password" name="password" class="login-input" placeholder="パスワード" autocomplete="current-password" required>
-    <button id="login-btn" type="submit">ログイン</button>
+    <button id="login-btn" onclick="login()">ログイン</button>
     <div id="login-spinner"></div>
-</form>
+</div>
 
 <div id="chat-container">
     <!-- System Header -->
