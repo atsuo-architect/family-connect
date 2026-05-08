@@ -8,6 +8,12 @@
     <link rel="dns-prefetch" href="https://cognito-idp.ap-northeast-1.amazonaws.com">
     <link rel="preconnect" href="wss://qo54kf8j45.execute-api.ap-northeast-1.amazonaws.com" crossorigin>
     <link rel="dns-prefetch" href="wss://qo54kf8j45.execute-api.ap-northeast-1.amazonaws.com">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0084ff">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="FamilyChat">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <style>
         /* --- Existing Styles --- */
         body { font-family: sans-serif; background-color: #f0f2f5; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; height: 100vh; box-sizing: border-box; }
@@ -708,6 +714,16 @@
             }
         }
     });
+    // ------------------------------------------------------------------
+    // NEW: Register Service Worker for PWA (Progressive Web App)
+    // ------------------------------------------------------------------
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('Service Worker registered:', reg.scope))
+                .catch(err => console.error('Service Worker registration failed:', err));
+        });
+    }
 </script>
 
 </body>
