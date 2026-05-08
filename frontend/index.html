@@ -120,14 +120,13 @@
     <video id="modal-video" src="" controls playsinline style="display: none;"></video>
 </div>
 
-<div id="login-container">
+<form id="login-container">
     <h2 style="text-align: center; margin-top: 0; color: #333;">家族ログイン</h2>
-    <input type="text" id="username" class="login-input" placeholder="ユーザー名">
-    <input type="password" id="password" class="login-input" placeholder="パスワード">
-    <button id="login-btn" onclick="login()">ログイン</button>
-    <!-- Loading Spinner DOM Element -->
+    <input type="text" id="username" name="username" class="login-input" placeholder="ユーザー名" autocomplete="username" required>
+    <input type="password" id="password" name="password" class="login-input" placeholder="パスワード" autocomplete="current-password" required>
+    <button id="login-btn" type="submit">ログイン</button>
     <div id="login-spinner"></div>
-</div>
+</form>
 
 <div id="chat-container">
     <!-- System Header -->
@@ -242,10 +241,15 @@
     // Initialize settings on load
     loadSettings();
 
-    // --- Existing Event Listeners ---
-    document.getElementById('username').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
-    document.getElementById('password').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
-
+    // ------------------------------------------------------------------
+    // FIX: Updated Login Handler
+    // Using form submit to handle both manual button clicks and biometric auto-submission.
+    // ------------------------------------------------------------------
+    loginContainer.addEventListener('submit', (e) => {
+        e.preventDefault(); // Stop page reload
+        login();
+    });
+    
     /**
      * Formats a timestamp to YYYY-MM-DD HH:mm:ss based on the user's local timezone.
      * Prevents the "9-hour offset" bug by ensuring naive UTC strings are parsed correctly.
