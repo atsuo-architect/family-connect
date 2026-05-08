@@ -250,6 +250,10 @@
         login();
     });
 
+    // Add back Enter key listeners to catch biometric virtual keypresses
+    document.getElementById('username').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
+    document.getElementById('password').addEventListener('keypress', (e) => { if (e.key === 'Enter') login(); });
+    
     /**
      * Formats a timestamp to YYYY-MM-DD HH:mm:ss based on the user's local timezone.
      * Prevents the "9-hour offset" bug by ensuring naive UTC strings are parsed correctly.
